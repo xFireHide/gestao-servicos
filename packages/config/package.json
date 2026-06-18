@@ -1,0 +1,7 @@
+{
+  "name": "@clinica/config",
+  "version": "0.0.0",
+  "private": true,
+  "files": ["tsconfig.base.json", "eslint.base.cjs"],
+  "main": "index.js"
+}

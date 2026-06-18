@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: clinica
+          POSTGRES_PASSWORD: clinica
+          POSTGRES_DB: clinica
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clinica"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://clinica:clinica@localhost:5432/clinica?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret-0123456789
+      JWT_REFRESH_SECRET: ci-refresh-secret-0123456789
+      JWT_ACCESS_TTL: "900"
+      JWT_REFRESH_TTL: "604800"
+      FIELD_ENCRYPTION_KEY: Z2VuZXJhdGUtYS1yZWFsLTMyLWJ5dGUta2V5LWhlcmU=
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Habilitar pnpm
+        run: corepack enable
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Build do pacote shared
+        run: pnpm --filter @clinica/shared build
+
+      - name: Gerar Prisma Client
+        run: pnpm --filter @clinica/api exec prisma generate
+
+      - name: Aplicar migrations (inclui exclusion constraint)
+        run: pnpm --filter @clinica/api exec prisma migrate deploy
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Testes e2e (inclui corrida de double-booking)
+        run: pnpm --filter @clinica/api test:e2e

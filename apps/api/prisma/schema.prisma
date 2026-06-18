@@ -1,0 +1,137 @@
+// Schema do monólito modular. A invariante anti-double-booking é aplicada por uma
+// exclusion constraint adicionada via migration SQL custom (ver ADR 0002).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PATIENT
+  RECEPTIONIST
+  DOCTOR
+  ADMIN
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(PATIENT)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  doctor        Doctor?
+  patient       Patient?
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @db.Uuid
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Doctor {
+  id           String   @id @default(uuid()) @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String   @unique @db.Uuid
+  specialty    String
+  crm          String   @unique // registro profissional
+  createdAt    DateTime @default(now())
+
+  availabilities Availability[]
+  appointments   Appointment[]
+
+  @@map("doctors")
+}
+
+model Patient {
+  id        String   @id @default(uuid()) @db.Uuid
+  // Conta de login opcional (autoatendimento). Cadastro na recepção pode não ter user.
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId    String?  @unique @db.Uuid
+  name      String
+  // PII sensível criptografada a nível de aplicação (ver crypto service). cpfHash p/ lookup único.
+  cpfEnc    String
+  cpfHash   String   @unique
+  birthDate DateTime @db.Date
+  phone     String
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@map("patients")
+}
+
+/// Regra de disponibilidade recorrente semanal de um médico.
+model Availability {
+  id          String   @id @default(uuid()) @db.Uuid
+  doctor      Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  doctorId    String   @db.Uuid
+  weekday     Int // 0=domingo ... 6=sábado
+  startTime   String // "HH:mm"
+  endTime     String // "HH:mm"
+  slotMinutes Int
+
+  @@index([doctorId, weekday])
+  @@map("availabilities")
+}
+
+model Appointment {
+  id        String            @id @default(uuid()) @db.Uuid
+  doctor    Doctor            @relation(fields: [doctorId], references: [id])
+  doctorId  String            @db.Uuid
+  patient   Patient           @relation(fields: [patientId], references: [id])
+  patientId String            @db.Uuid
+  startAt   DateTime          @db.Timestamptz(3)
+  endAt     DateTime          @db.Timestamptz(3)
+  status    AppointmentStatus @default(SCHEDULED)
+  reason    String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  // `during tstzrange` + exclusion constraint adicionados via migration SQL custom (ADR 0002).
+
+  @@index([doctorId, startAt])
+  @@index([patientId])
+  @@map("appointments")
+}
+
+/// Trilha de auditoria append-only (LGPD): quem acessou qual recurso e quando.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  actorRole  String?
+  action     String // ex.: "patient.read", "appointment.create"
+  resource   String // ex.: "patient:<uuid>"
+  ip         String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([resource])
+  @@map("audit_logs")
+}
