@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui';
 
 const NAV = [
+  { href: '/relatorios', label: 'Dashboard' },
   { href: '/agenda', label: 'Agenda' },
   { href: '/pacientes', label: 'Pacientes' },
   { href: '/servicos', label: 'Serviços' },

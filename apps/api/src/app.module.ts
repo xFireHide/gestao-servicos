@@ -13,6 +13,7 @@ import { IamModule } from './modules/iam/iam.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { ServicesModule } from './modules/services/services.module';
 import { FinanceModule } from './modules/finance/finance.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { DoctorsModule } from './modules/doctors/doctors.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -32,6 +33,7 @@ import { RolesGuard } from './modules/iam/roles.guard';
     PatientsModule,
     ServicesModule,
     FinanceModule,
+    ReportsModule,
     SchedulingModule,
     DoctorsModule,
     NotificationsModule,

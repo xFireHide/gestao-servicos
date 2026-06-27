@@ -4,5 +4,6 @@ export * from './auth';
 export * from './patients';
 export * from './services';
 export * from './finance';
+export * from './reports';
 export * from './scheduling';
 export * from './events';
