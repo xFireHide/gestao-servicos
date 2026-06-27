@@ -11,10 +11,14 @@ export class MailService {
 
   constructor(config: ConfigService<Env, true>) {
     this.from = config.get('MAIL_FROM', { infer: true });
+    const user = config.get('SMTP_USER', { infer: true });
+    const pass = config.get('SMTP_PASS', { infer: true });
     this.transporter = nodemailer.createTransport({
       host: config.get('SMTP_HOST', { infer: true }),
       port: config.get('SMTP_PORT', { infer: true }),
-      secure: false,
+      secure: config.get('SMTP_SECURE', { infer: true }),
+      // Em dev (MailHog) não há credenciais; em produção usa o provedor SMTP.
+      ...(user && pass ? { auth: { user, pass } } : {}),
     });
   }
 

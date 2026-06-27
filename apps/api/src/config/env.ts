@@ -14,6 +14,15 @@ export const envSchema = z.object({
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().int().default(1025),
+  // TLS: true para porta 465; false (STARTTLS/sem TLS) para 587/1025.
+  // (coerce.boolean trataria "false" como true; comparamos a string explicitamente.)
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Credenciais do provedor SMTP (vazias em dev com MailHog).
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().default('no-reply@clinica.local'),
 });
 

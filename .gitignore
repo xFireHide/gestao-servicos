@@ -11,3 +11,12 @@ coverage/
 !.env.example
 .DS_Store
 prisma/*.db
+
+# Ferramentas locais / não relacionadas ao projeto
+.claude/
+CLAUDE.md
+.firegod*
+.cursor/
+.idea/
+.vscode/
+*.local
