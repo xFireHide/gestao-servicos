@@ -74,6 +74,23 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
+/// Funil de cliente (CRM): lead captado -> cliente ativo -> inativo.
+enum CustomerStatus {
+  LEAD
+  ACTIVE
+  INACTIVE
+}
+
+/// Tipo de interação registrada na linha do tempo do cliente (CRM).
+enum InteractionType {
+  NOTE
+  CALL
+  EMAIL
+  WHATSAPP
+  MEETING
+  OTHER
+}
+
 model User {
   id             String       @id @default(uuid()) @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -135,20 +152,44 @@ model Patient {
   userId         String?      @unique @db.Uuid
   name           String
   // PII sensível criptografada a nível de aplicação (ver crypto service). cpfHash p/ lookup.
-  cpfEnc         String
-  cpfHash        String
-  birthDate      DateTime     @db.Date
+  // Opcionais: um lead de CRM pode ter só nome + telefone.
+  cpfEnc         String?
+  cpfHash        String?
+  birthDate      DateTime?    @db.Date
   phone          String
   email          String?
+  // CRM.
+  status         CustomerStatus @default(ACTIVE)
+  source         String?
+  tags           String[]       @default([])
+  notes          String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   appointments Appointment[]
+  interactions CustomerInteraction[]
 
-  // CPF é único por empresa: a mesma pessoa pode ser cliente de empresas diferentes.
+  // CPF é único por empresa quando presente (múltiplos NULL são permitidos p/ leads).
   @@unique([organizationId, cpfHash])
   @@index([organizationId])
+  @@index([organizationId, status])
   @@map("patients")
+}
+
+/// Linha do tempo de interações com um cliente (CRM): ligações, e-mails, notas...
+model CustomerInteraction {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  patient        Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId      String          @db.Uuid
+  type           InteractionType @default(NOTE)
+  note           String
+  authorId       String?         @db.Uuid // usuário (staff) que registrou
+  createdAt      DateTime        @default(now())
+
+  @@index([organizationId])
+  @@index([patientId, createdAt])
+  @@map("customer_interactions")
 }
 
 /// Regra de disponibilidade recorrente semanal de um médico.

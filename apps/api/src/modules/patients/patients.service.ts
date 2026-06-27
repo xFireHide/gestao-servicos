@@ -4,7 +4,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CreatePatientInput, JwtClaims, Role, UpdatePatientInput } from '@clinica/shared';
+import {
+  CreateInteractionInput,
+  CreatePatientInput,
+  CustomerStatus,
+  InteractionView,
+  JwtClaims,
+  Role,
+  UpdatePatientInput,
+} from '@clinica/shared';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { CryptoService } from '../../shared/crypto/crypto.service';
 import { TenantContext } from '../../shared/tenant/tenant-context';
@@ -13,11 +21,29 @@ import { TenantContext } from '../../shared/tenant/tenant-context';
 export interface PatientView {
   id: string;
   name: string;
-  cpf: string; // mascarado: ***.***.***-**
-  birthDate: Date;
+  cpf: string | null; // mascarado: ***.***.***-** (null quando não informado)
+  birthDate: Date | null;
   phone: string;
   email: string | null;
   userId: string | null;
+  status: CustomerStatus;
+  source: string | null;
+  tags: string[];
+  notes: string | null;
+}
+
+interface PatientRow {
+  id: string;
+  name: string;
+  cpfEnc: string | null;
+  birthDate: Date | null;
+  phone: string;
+  email: string | null;
+  userId: string | null;
+  status: CustomerStatus;
+  source: string | null;
+  tags: string[];
+  notes: string | null;
 }
 
 @Injectable()
@@ -29,21 +55,27 @@ export class PatientsService {
   ) {}
 
   async create(input: CreatePatientInput): Promise<PatientView> {
-    const cpfHash = this.crypto.blindIndex(input.cpf);
-    // cpfHash é único por empresa; o middleware de tenant injeta o organizationId no filtro.
-    const existing = await this.prisma.patient.findFirst({ where: { cpfHash } });
-    if (existing) throw new ConflictException('Paciente com este CPF já cadastrado');
+    // CPF é opcional (leads). Quando informado, vira hash p/ dedupe (único por empresa).
+    const cpfHash = input.cpf ? this.crypto.blindIndex(input.cpf) : null;
+    if (cpfHash) {
+      const existing = await this.prisma.patient.findFirst({ where: { cpfHash } });
+      if (existing) throw new ConflictException('Cliente com este CPF já cadastrado');
+    }
 
     const patient = await this.prisma.patient.create({
       data: {
         organizationId: this.tenant.requireOrganizationId(),
         name: input.name,
-        cpfEnc: this.crypto.encrypt(input.cpf),
+        cpfEnc: input.cpf ? this.crypto.encrypt(input.cpf) : null,
         cpfHash,
-        birthDate: input.birthDate,
+        birthDate: input.birthDate ?? null,
         phone: input.phone,
         email: input.email ?? null,
         userId: input.userId ?? null,
+        status: input.status,
+        source: input.source ?? null,
+        tags: input.tags ?? [],
+        notes: input.notes ?? null,
       },
     });
     return this.toView(patient);
@@ -51,18 +83,18 @@ export class PatientsService {
 
   async findOne(id: string, actor: JwtClaims): Promise<PatientView> {
     const patient = await this.prisma.patient.findUnique({ where: { id } });
-    if (!patient) throw new NotFoundException('Paciente não encontrado');
-    // Paciente só acessa o próprio prontuário; staff acessa todos.
+    if (!patient) throw new NotFoundException('Cliente não encontrado');
+    // Cliente/paciente só acessa o próprio cadastro; staff acessa todos.
     if (actor.role === Role.PATIENT && patient.userId !== actor.sub) {
-      throw new ForbiddenException('Acesso negado ao prontuário de outro paciente');
+      throw new ForbiddenException('Acesso negado ao cadastro de outro cliente');
     }
     return this.toView(patient);
   }
 
-  /** Perfil do paciente vinculado ao usuário logado (autoatendimento). */
+  /** Perfil do cliente vinculado ao usuário logado (autoatendimento). */
   async meProfile(userId: string): Promise<PatientView> {
     const patient = await this.prisma.patient.findUnique({ where: { userId } });
-    if (!patient) throw new NotFoundException('Perfil de paciente não encontrado');
+    if (!patient) throw new NotFoundException('Perfil de cliente não encontrado');
     return this.toView(patient);
   }
 
@@ -75,15 +107,19 @@ export class PatientsService {
     return patient?.id ?? null;
   }
 
-  /** O próprio paciente completa seu cadastro; vincula ao userId do token (um por usuário). */
+  /** O próprio cliente completa seu cadastro; vincula ao userId do token (um por usuário). */
   async createForUser(userId: string, input: CreatePatientInput): Promise<PatientView> {
     const existing = await this.prisma.patient.findUnique({ where: { userId } });
-    if (existing) throw new ConflictException('Perfil de paciente já cadastrado');
+    if (existing) throw new ConflictException('Perfil de cliente já cadastrado');
     return this.create({ ...input, userId });
   }
 
-  async list(): Promise<PatientView[]> {
-    const patients = await this.prisma.patient.findMany({ orderBy: { name: 'asc' } });
+  /** Lista clientes, opcionalmente filtrando pelo estágio do funil (CRM). */
+  async list(status?: CustomerStatus): Promise<PatientView[]> {
+    const patients = await this.prisma.patient.findMany({
+      where: status ? { status } : undefined,
+      orderBy: { name: 'asc' },
+    });
     return patients.map((p) => this.toView(p));
   }
 
@@ -99,36 +135,80 @@ export class PatientsService {
     return this.toView(patient);
   }
 
-  private async ensureExists(id: string): Promise<void> {
-    const count = await this.prisma.patient.count({ where: { id } });
-    if (count === 0) throw new NotFoundException('Paciente não encontrado');
+  /** Registra uma interação na linha do tempo do cliente (CRM). */
+  async addInteraction(
+    patientId: string,
+    input: CreateInteractionInput,
+    actor: JwtClaims,
+  ): Promise<InteractionView> {
+    await this.ensureExists(patientId);
+    const interaction = await this.prisma.customerInteraction.create({
+      data: {
+        organizationId: this.tenant.requireOrganizationId(),
+        patientId,
+        type: input.type,
+        note: input.note,
+        authorId: actor.sub,
+      },
+    });
+    return this.toInteractionView(interaction);
   }
 
-  private toView(p: {
-    id: string;
-    name: string;
-    cpfEnc: string;
-    birthDate: Date;
-    phone: string;
-    email: string | null;
-    userId: string | null;
-  }): PatientView {
+  /** Linha do tempo do cliente (mais recentes primeiro). */
+  async listInteractions(patientId: string): Promise<InteractionView[]> {
+    await this.ensureExists(patientId);
+    const items = await this.prisma.customerInteraction.findMany({
+      where: { patientId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return items.map((i) => this.toInteractionView(i));
+  }
+
+  private async ensureExists(id: string): Promise<void> {
+    const count = await this.prisma.patient.count({ where: { id } });
+    if (count === 0) throw new NotFoundException('Cliente não encontrado');
+  }
+
+  private toView(p: PatientRow): PatientView {
     // Decrypt resiliente: dado corrompido ou cifrado com chave antiga não derruba a lista.
-    let masked = '***.***.***-**';
-    try {
-      const cpf = this.crypto.decrypt(p.cpfEnc);
-      masked = `***.***.${cpf.slice(6, 9)}-**`;
-    } catch {
-      // mantém máscara genérica
+    let cpf: string | null = null;
+    if (p.cpfEnc) {
+      cpf = '***.***.***-**';
+      try {
+        const plain = this.crypto.decrypt(p.cpfEnc);
+        cpf = `***.***.${plain.slice(6, 9)}-**`;
+      } catch {
+        // mantém máscara genérica
+      }
     }
     return {
       id: p.id,
       name: p.name,
-      cpf: masked,
+      cpf,
       birthDate: p.birthDate,
       phone: p.phone,
       email: p.email,
       userId: p.userId,
+      status: p.status,
+      source: p.source,
+      tags: p.tags,
+      notes: p.notes,
+    };
+  }
+
+  private toInteractionView(i: {
+    id: string;
+    type: InteractionView['type'];
+    note: string;
+    authorId: string | null;
+    createdAt: Date;
+  }): InteractionView {
+    return {
+      id: i.id,
+      type: i.type,
+      note: i.note,
+      authorId: i.authorId,
+      createdAt: i.createdAt.toISOString(),
     };
   }
 }

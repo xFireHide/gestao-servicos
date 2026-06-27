@@ -10,6 +10,7 @@ const TENANT_MODELS = new Set<Prisma.ModelName>([
   'User',
   'Doctor',
   'Patient',
+  'CustomerInteraction',
   'Service',
   'Availability',
   'Appointment',

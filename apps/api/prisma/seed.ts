@@ -105,6 +105,23 @@ async function main(): Promise<void> {
     },
   });
 
+  // Lead de CRM de exemplo (sem CPF — captado por anúncio).
+  const lead = await prisma.patient.findFirst({
+    where: { organizationId, name: 'Maria Lead', cpfHash: null },
+  });
+  if (!lead) {
+    await prisma.patient.create({
+      data: {
+        organizationId,
+        name: 'Maria Lead',
+        phone: '+5511955554444',
+        status: 'LEAD',
+        source: 'Instagram',
+        tags: ['campanha-junho'],
+      },
+    });
+  }
+
   console.log('Seed concluído:', {
     org: org.slug,
     admin: admin.email,

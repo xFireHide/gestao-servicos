@@ -6,12 +6,16 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
 import {
+  createInteractionSchema,
+  CreateInteractionInput,
   createPatientSchema,
   CreatePatientInput,
+  customerStatusSchema,
   JwtClaims,
   Role,
   updatePatientSchema,
@@ -52,8 +56,9 @@ export class PatientsController {
 
   @Get()
   @Roles(Role.RECEPTIONIST, Role.DOCTOR, Role.ADMIN)
-  list() {
-    return this.patients.list();
+  list(@Query('status') status?: string) {
+    const parsed = status ? customerStatusSchema.parse(status) : undefined;
+    return this.patients.list(parsed);
   }
 
   @Get(':id')
@@ -70,5 +75,25 @@ export class PatientsController {
     @Body(new ZodValidationPipe(updatePatientSchema)) body: UpdatePatientInput,
   ) {
     return this.patients.update(id, body);
+  }
+
+  // --- CRM: linha do tempo de interações ---
+
+  @Get(':id/interactions')
+  @Roles(Role.RECEPTIONIST, Role.DOCTOR, Role.ADMIN)
+  @Audit('patient.interactions.read', 'patient::id')
+  listInteractions(@Param('id', ParseUUIDPipe) id: string) {
+    return this.patients.listInteractions(id);
+  }
+
+  @Post(':id/interactions')
+  @Roles(Role.RECEPTIONIST, Role.DOCTOR, Role.ADMIN)
+  @Audit('patient.interactions.create', 'patient::id')
+  addInteraction(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(createInteractionSchema)) body: CreateInteractionInput,
+    @CurrentUser() user: JwtClaims,
+  ) {
+    return this.patients.addInteraction(id, body, user);
   }
 }
