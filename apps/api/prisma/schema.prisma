@@ -91,6 +91,22 @@ enum InteractionType {
   OTHER
 }
 
+/// Situação de uma fatura (financeiro).
+enum InvoiceStatus {
+  OPEN
+  PAID
+  CANCELLED
+}
+
+/// Meio de pagamento.
+enum PaymentMethod {
+  CASH
+  CARD
+  PIX
+  TRANSFER
+  OTHER
+}
+
 model User {
   id             String       @id @default(uuid()) @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -168,6 +184,7 @@ model Patient {
 
   appointments Appointment[]
   interactions CustomerInteraction[]
+  invoices     Invoice[]
 
   // CPF é único por empresa quando presente (múltiplos NULL são permitidos p/ leads).
   @@unique([organizationId, cpfHash])
@@ -232,6 +249,75 @@ model Appointment {
   @@index([organizationId])
   @@index([serviceId])
   @@map("appointments")
+}
+
+/// Fatura emitida para um cliente. totalCents é denormalizado (soma dos itens).
+model Invoice {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @db.Uuid
+  patient        Patient       @relation(fields: [patientId], references: [id])
+  patientId      String        @db.Uuid
+  // Vínculo opcional ao agendamento que originou a fatura (scalar, sem relação).
+  appointmentId  String?       @db.Uuid
+  status         InvoiceStatus @default(OPEN)
+  totalCents     Int           @default(0)
+  notes          String?
+  issuedAt       DateTime      @default(now())
+  dueDate        DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@index([organizationId, status])
+  @@index([patientId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @db.Uuid
+  invoice        Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId      String  @db.Uuid
+  description    String
+  quantity       Int     @default(1)
+  unitPriceCents Int
+  serviceId      String? @db.Uuid // referência ao catálogo (scalar, sem relação)
+
+  @@index([invoiceId])
+  @@index([organizationId])
+  @@map("invoice_items")
+}
+
+model Payment {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @db.Uuid
+  invoice        Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId      String        @db.Uuid
+  amountCents    Int
+  method         PaymentMethod @default(CASH)
+  paidAt         DateTime      @default(now())
+  notes          String?
+  createdAt      DateTime      @default(now())
+
+  @@index([invoiceId])
+  @@index([organizationId, paidAt])
+  @@map("payments")
+}
+
+/// Saída de caixa (despesa) — compõe o fluxo de caixa junto com os recebimentos.
+model Expense {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  description    String
+  amountCents    Int
+  category       String?
+  occurredAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, occurredAt])
+  @@map("expenses")
 }
 
 /// Trilha de auditoria append-only (LGPD): quem acessou qual recurso e quando.

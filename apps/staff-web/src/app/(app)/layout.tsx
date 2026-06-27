@@ -11,6 +11,7 @@ const NAV = [
   { href: '/agenda', label: 'Agenda' },
   { href: '/pacientes', label: 'Pacientes' },
   { href: '/servicos', label: 'Serviços' },
+  { href: '/financeiro', label: 'Financeiro' },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {

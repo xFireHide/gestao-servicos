@@ -36,6 +36,8 @@ describe('Services catalog (e2e)', () => {
     jwt = app.get(JwtService);
     config = app.get(ConfigService);
 
+    await prisma.invoice.deleteMany();
+    await prisma.expense.deleteMany();
     await prisma.appointment.deleteMany();
     await prisma.service.deleteMany();
     await prisma.availability.deleteMany();

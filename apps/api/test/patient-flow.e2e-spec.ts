@@ -31,6 +31,8 @@ describe('Patient self-service (e2e)', () => {
     await app.init();
     prisma = app.get(PrismaService);
 
+    await prisma.invoice.deleteMany();
+    await prisma.expense.deleteMany();
     await prisma.appointment.deleteMany();
     await prisma.availability.deleteMany();
     await prisma.patient.deleteMany();

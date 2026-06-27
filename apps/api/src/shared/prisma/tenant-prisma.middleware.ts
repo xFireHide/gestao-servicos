@@ -14,6 +14,10 @@ const TENANT_MODELS = new Set<Prisma.ModelName>([
   'Service',
   'Availability',
   'Appointment',
+  'Invoice',
+  'InvoiceItem',
+  'Payment',
+  'Expense',
   'AuditLog',
 ]);
 

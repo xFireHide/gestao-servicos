@@ -37,6 +37,8 @@ describe('Scheduling (e2e)', () => {
     config = app.get(ConfigService);
 
     // Limpeza em ordem segura de FKs (organizations por último: cascateia o tenant).
+    await prisma.invoice.deleteMany();
+    await prisma.expense.deleteMany();
     await prisma.appointment.deleteMany();
     await prisma.availability.deleteMany();
     await prisma.patient.deleteMany();
