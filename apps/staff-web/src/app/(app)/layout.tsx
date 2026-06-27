@@ -10,6 +10,7 @@ import { Button } from '@/components/ui';
 const NAV = [
   { href: '/agenda', label: 'Agenda' },
   { href: '/pacientes', label: 'Pacientes' },
+  { href: '/servicos', label: 'Serviços' },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {

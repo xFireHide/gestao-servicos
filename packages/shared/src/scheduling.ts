@@ -51,6 +51,8 @@ const appointmentTimes = {
   startAt: z.coerce.date(),
   endAt: z.coerce.date(),
   reason: z.string().max(500).optional(),
+  // Serviço do catálogo associado ao agendamento (preço/duração). Opcional.
+  serviceId: z.string().uuid().optional(),
 };
 const startBeforeEnd = (v: { startAt: Date; endAt: Date }) => v.startAt < v.endAt;
 const startBeforeEndOpts = { message: 'startAt deve ser anterior a endAt', path: ['endAt'] };

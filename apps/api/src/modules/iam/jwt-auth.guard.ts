@@ -10,6 +10,7 @@ import { Reflector } from '@nestjs/core';
 import { jwtClaimsSchema } from '@clinica/shared';
 import type { Env } from '../../config/env';
 import { IS_PUBLIC_KEY } from '../../common/decorators';
+import { TenantContext } from '../../shared/tenant/tenant-context';
 
 /** Valida o JWT de acesso e popula request.user, exceto em rotas @Public. */
 @Injectable()
@@ -18,6 +19,7 @@ export class JwtAuthGuard implements CanActivate {
     private readonly jwt: JwtService,
     private readonly config: ConfigService<Env, true>,
     private readonly reflector: Reflector,
+    private readonly tenant: TenantContext,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -41,7 +43,10 @@ export class JwtAuthGuard implements CanActivate {
       const payload = await this.jwt.verifyAsync(token, {
         secret: this.config.get('JWT_ACCESS_SECRET', { infer: true }),
       });
-      request.user = jwtClaimsSchema.parse(payload);
+      const claims = jwtClaimsSchema.parse(payload);
+      request.user = claims;
+      // Ativa o isolamento multiempresa para o resto da request (queries do Prisma).
+      this.tenant.setOrganizationId(claims.organizationId ?? null);
       return true;
     } catch {
       throw new UnauthorizedException('Token de acesso inválido ou expirado');

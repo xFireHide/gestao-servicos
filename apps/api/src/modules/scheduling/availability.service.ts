@@ -15,9 +15,10 @@ export class AvailabilityService {
   constructor(private readonly prisma: PrismaService) {}
 
   async upsertRule(input: AvailabilityInput) {
-    await this.ensureDoctor(input.doctorId);
+    const organizationId = await this.ensureDoctor(input.doctorId);
     return this.prisma.availability.create({
       data: {
+        organizationId,
         doctorId: input.doctorId,
         weekday: input.weekday,
         startTime: input.startTime,
@@ -77,8 +78,13 @@ export class AvailabilityService {
     });
   }
 
-  private async ensureDoctor(doctorId: string): Promise<void> {
-    const count = await this.prisma.doctor.count({ where: { id: doctorId } });
-    if (count === 0) throw new NotFoundException('Médico não encontrado');
+  /** Garante que o médico existe (no tenant atual) e retorna o organizationId dele. */
+  private async ensureDoctor(doctorId: string): Promise<string> {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorId },
+      select: { organizationId: true },
+    });
+    if (!doctor) throw new NotFoundException('Médico não encontrado');
+    return doctor.organizationId;
   }
 }

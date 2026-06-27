@@ -7,6 +7,7 @@ import {
 import { CreatePatientInput, JwtClaims, Role, UpdatePatientInput } from '@clinica/shared';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { CryptoService } from '../../shared/crypto/crypto.service';
+import { TenantContext } from '../../shared/tenant/tenant-context';
 
 /** DTO de saída: CPF descriptografado e mascarado; nunca expõe cpfEnc/cpfHash. */
 export interface PatientView {
@@ -24,15 +25,18 @@ export class PatientsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
+    private readonly tenant: TenantContext,
   ) {}
 
   async create(input: CreatePatientInput): Promise<PatientView> {
     const cpfHash = this.crypto.blindIndex(input.cpf);
-    const existing = await this.prisma.patient.findUnique({ where: { cpfHash } });
+    // cpfHash é único por empresa; o middleware de tenant injeta o organizationId no filtro.
+    const existing = await this.prisma.patient.findFirst({ where: { cpfHash } });
     if (existing) throw new ConflictException('Paciente com este CPF já cadastrado');
 
     const patient = await this.prisma.patient.create({
       data: {
+        organizationId: this.tenant.requireOrganizationId(),
         name: input.name,
         cpfEnc: this.crypto.encrypt(input.cpf),
         cpfHash,

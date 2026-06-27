@@ -17,6 +17,56 @@ enum Role {
   ADMIN
 }
 
+/// Vertical de negócio da empresa-cliente (tenant) do SaaS.
+enum BusinessType {
+  CLINIC
+  SALON
+  GYM
+  WORKSHOP
+  CONSULTING
+  GENERIC
+}
+
+/// Empresa-cliente (tenant). Todo dado de domínio pertence a exatamente uma Organization;
+/// o isolamento é forçado na camada de acesso (ver tenant middleware do Prisma).
+model Organization {
+  id           String       @id @default(uuid()) @db.Uuid
+  name         String
+  slug         String       @unique
+  businessType BusinessType @default(GENERIC)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  users          User[]
+  doctors        Doctor[]
+  patients       Patient[]
+  services       Service[]
+  availabilities Availability[]
+  appointments   Appointment[]
+
+  @@map("organizations")
+}
+
+/// Item do catálogo de serviços de uma empresa (preço + duração). Generaliza o
+/// conceito de "consulta" para qualquer negócio: corte, revisão, aula, sessão...
+model Service {
+  id              String       @id @default(uuid()) @db.Uuid
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String       @db.Uuid
+  name            String
+  description     String?
+  priceCents      Int          @default(0)
+  durationMinutes Int
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  appointments Appointment[]
+
+  @@index([organizationId])
+  @@map("services")
+}
+
 enum AppointmentStatus {
   SCHEDULED
   CANCELLED
@@ -25,18 +75,22 @@ enum AppointmentStatus {
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(PATIENT)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String       @id @default(uuid()) @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String       @db.Uuid
+  name           String
+  // E-mail globalmente único: uma conta de login pertence a uma única empresa.
+  email          String       @unique
+  passwordHash   String
+  role           Role         @default(PATIENT)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   refreshTokens RefreshToken[]
   doctor        Doctor?
   patient       Patient?
 
+  @@index([organizationId])
   @@map("users")
 }
 
@@ -54,84 +108,105 @@ model RefreshToken {
 }
 
 model Doctor {
-  id           String   @id @default(uuid()) @db.Uuid
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId       String   @unique @db.Uuid
-  specialty    String
-  crm          String   @unique // registro profissional
-  createdAt    DateTime @default(now())
+  id             String       @id @default(uuid()) @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String       @unique @db.Uuid
+  specialty      String
+  crm            String // registro profissional — único dentro da empresa
+  createdAt      DateTime     @default(now())
 
   availabilities Availability[]
   appointments   Appointment[]
 
+  // CRM/registro é único por empresa (não globalmente — empresas diferentes não conflitam).
+  @@unique([organizationId, crm])
+  @@index([organizationId])
   @@map("doctors")
 }
 
 model Patient {
-  id        String   @id @default(uuid()) @db.Uuid
+  id             String       @id @default(uuid()) @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String       @db.Uuid
   // Conta de login opcional (autoatendimento). Cadastro na recepção pode não ter user.
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId    String?  @unique @db.Uuid
-  name      String
-  // PII sensível criptografada a nível de aplicação (ver crypto service). cpfHash p/ lookup único.
-  cpfEnc    String
-  cpfHash   String   @unique
-  birthDate DateTime @db.Date
-  phone     String
-  email     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId         String?      @unique @db.Uuid
+  name           String
+  // PII sensível criptografada a nível de aplicação (ver crypto service). cpfHash p/ lookup.
+  cpfEnc         String
+  cpfHash        String
+  birthDate      DateTime     @db.Date
+  phone          String
+  email          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   appointments Appointment[]
 
+  // CPF é único por empresa: a mesma pessoa pode ser cliente de empresas diferentes.
+  @@unique([organizationId, cpfHash])
+  @@index([organizationId])
   @@map("patients")
 }
 
 /// Regra de disponibilidade recorrente semanal de um médico.
 model Availability {
-  id          String   @id @default(uuid()) @db.Uuid
-  doctor      Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  doctorId    String   @db.Uuid
-  weekday     Int // 0=domingo ... 6=sábado
-  startTime   String // "HH:mm"
-  endTime     String // "HH:mm"
-  slotMinutes Int
+  id             String       @id @default(uuid()) @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String       @db.Uuid
+  doctor         Doctor       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  doctorId       String       @db.Uuid
+  weekday        Int // 0=domingo ... 6=sábado
+  startTime      String // "HH:mm"
+  endTime        String // "HH:mm"
+  slotMinutes    Int
 
   @@index([doctorId, weekday])
+  @@index([organizationId])
   @@map("availabilities")
 }
 
 model Appointment {
-  id        String            @id @default(uuid()) @db.Uuid
-  doctor    Doctor            @relation(fields: [doctorId], references: [id])
-  doctorId  String            @db.Uuid
-  patient   Patient           @relation(fields: [patientId], references: [id])
-  patientId String            @db.Uuid
-  startAt   DateTime          @db.Timestamptz(3)
-  endAt     DateTime          @db.Timestamptz(3)
-  status    AppointmentStatus @default(SCHEDULED)
-  reason    String?
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  id             String            @id @default(uuid()) @db.Uuid
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String            @db.Uuid
+  doctor         Doctor            @relation(fields: [doctorId], references: [id])
+  doctorId       String            @db.Uuid
+  patient        Patient           @relation(fields: [patientId], references: [id])
+  patientId      String            @db.Uuid
+  service        Service?          @relation(fields: [serviceId], references: [id])
+  serviceId      String?           @db.Uuid
+  startAt        DateTime          @db.Timestamptz(3)
+  endAt          DateTime          @db.Timestamptz(3)
+  status         AppointmentStatus @default(SCHEDULED)
+  reason         String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
   // `during tstzrange` + exclusion constraint adicionados via migration SQL custom (ADR 0002).
 
   @@index([doctorId, startAt])
   @@index([patientId])
+  @@index([organizationId])
+  @@index([serviceId])
   @@map("appointments")
 }
 
 /// Trilha de auditoria append-only (LGPD): quem acessou qual recurso e quando.
 model AuditLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  actorId    String?  @db.Uuid
-  actorRole  String?
-  action     String // ex.: "patient.read", "appointment.create"
-  resource   String // ex.: "patient:<uuid>"
-  ip         String?
-  metadata   Json?
-  createdAt  DateTime @default(now())
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String?  @db.Uuid
+  actorId        String?  @db.Uuid
+  actorRole      String?
+  action         String // ex.: "patient.read", "appointment.create"
+  resource       String // ex.: "patient:<uuid>"
+  ip             String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
 
   @@index([actorId])
   @@index([resource])
+  @@index([organizationId])
   @@map("audit_logs")
 }

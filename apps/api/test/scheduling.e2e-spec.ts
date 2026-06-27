@@ -36,16 +36,23 @@ describe('Scheduling (e2e)', () => {
     jwt = app.get(JwtService);
     config = app.get(ConfigService);
 
-    // Limpeza em ordem segura de FKs.
+    // Limpeza em ordem segura de FKs (organizations por último: cascateia o tenant).
     await prisma.appointment.deleteMany();
     await prisma.availability.deleteMany();
     await prisma.patient.deleteMany();
     await prisma.doctor.deleteMany();
     await prisma.refreshToken.deleteMany();
     await prisma.user.deleteMany();
+    await prisma.organization.deleteMany();
+
+    const org = await prisma.organization.create({
+      data: { name: 'Org E2E', slug: 'org-e2e', businessType: 'CLINIC' },
+    });
+    const organizationId = org.id;
 
     const admin = await prisma.user.create({
       data: {
+        organizationId,
         name: 'Admin E2E',
         email: 'admin.e2e@clinica.local',
         passwordHash: 'x',
@@ -53,12 +60,13 @@ describe('Scheduling (e2e)', () => {
       },
     });
     staffToken = await jwt.signAsync(
-      { sub: admin.id, email: admin.email, role: Role.ADMIN },
+      { sub: admin.id, email: admin.email, role: Role.ADMIN, organizationId },
       { secret: config.get('JWT_ACCESS_SECRET'), expiresIn: 900 },
     );
 
     const doctorUser = await prisma.user.create({
       data: {
+        organizationId,
         name: 'Dra. Teste',
         email: 'dra.teste@clinica.local',
         passwordHash: 'x',
@@ -66,12 +74,13 @@ describe('Scheduling (e2e)', () => {
       },
     });
     const doctor = await prisma.doctor.create({
-      data: { userId: doctorUser.id, specialty: 'Clínica Geral', crm: 'CRM-E2E-1' },
+      data: { organizationId, userId: doctorUser.id, specialty: 'Clínica Geral', crm: 'CRM-E2E-1' },
     });
     doctorId = doctor.id;
 
     await prisma.availability.create({
       data: {
+        organizationId,
         doctorId,
         weekday: date.getUTCDay(),
         startTime: '09:00',
@@ -82,6 +91,7 @@ describe('Scheduling (e2e)', () => {
 
     const patient = await prisma.patient.create({
       data: {
+        organizationId,
         name: 'Paciente Teste',
         cpfEnc: 'enc',
         cpfHash: 'hash-e2e',

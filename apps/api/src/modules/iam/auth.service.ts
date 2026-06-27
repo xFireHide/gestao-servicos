@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -27,19 +28,28 @@ export class AuthService {
 
   /** Autoatendimento público cria sempre PATIENT; outros papéis só por ADMIN. */
   async register(input: RegisterInput): Promise<AuthTokens> {
+    const organizationId = await this.resolveOrganizationId(input.orgSlug);
+
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (existing) throw new ConflictException('E-mail já cadastrado');
 
     const passwordHash = await argon2.hash(input.password);
     const user = await this.prisma.user.create({
       data: {
+        // organizationId explícito: rota pública não tem contexto de tenant ativo.
+        organizationId,
         name: input.name,
         email: input.email,
         passwordHash,
         role: Role.PATIENT,
       },
     });
-    return this.issueTokens({ sub: user.id, email: user.email, role: user.role as Role });
+    return this.issueTokens({
+      sub: user.id,
+      email: user.email,
+      role: user.role as Role,
+      organizationId: user.organizationId,
+    });
   }
 
   async login(input: LoginInput): Promise<AuthTokens> {
@@ -47,7 +57,28 @@ export class AuthService {
     if (!user || !(await argon2.verify(user.passwordHash, input.password))) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
-    return this.issueTokens({ sub: user.id, email: user.email, role: user.role as Role });
+    return this.issueTokens({
+      sub: user.id,
+      email: user.email,
+      role: user.role as Role,
+      organizationId: user.organizationId,
+    });
+  }
+
+  /**
+   * Resolve a empresa (tenant) do cadastro. Usa o slug informado pela página da
+   * empresa; na ausência dele, cai para a única empresa existente (compat. single-tenant).
+   */
+  private async resolveOrganizationId(orgSlug?: string): Promise<string> {
+    if (orgSlug) {
+      const org = await this.prisma.organization.findUnique({ where: { slug: orgSlug } });
+      if (!org) throw new BadRequestException('Empresa não encontrada');
+      return org.id;
+    }
+    const orgs = await this.prisma.organization.findMany({ take: 2, select: { id: true } });
+    const only = orgs.length === 1 ? orgs[0] : undefined;
+    if (only) return only.id;
+    throw new BadRequestException('Informe a empresa (orgSlug) para se cadastrar');
   }
 
   async refresh(refreshToken: string): Promise<AuthTokens> {
@@ -71,7 +102,12 @@ export class AuthService {
       where: { id: stored.id },
       data: { revokedAt: new Date() },
     });
-    return this.issueTokens({ sub: claims.sub, email: claims.email, role: claims.role });
+    return this.issueTokens({
+      sub: claims.sub,
+      email: claims.email,
+      role: claims.role,
+      organizationId: claims.organizationId,
+    });
   }
 
   private async issueTokens(claims: JwtClaims): Promise<AuthTokens> {

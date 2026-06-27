@@ -37,16 +37,24 @@ describe('Patient self-service (e2e)', () => {
     await prisma.doctor.deleteMany();
     await prisma.refreshToken.deleteMany();
     await prisma.user.deleteMany();
+    await prisma.organization.deleteMany();
+
+    // Empresa única: register() sem orgSlug cai automaticamente nela.
+    const org = await prisma.organization.create({
+      data: { name: 'Org PF', slug: 'org-pf', businessType: 'CLINIC' },
+    });
+    const organizationId = org.id;
 
     const doctorUser = await prisma.user.create({
-      data: { name: 'Dra. X', email: 'drx@clinica.local', passwordHash: 'x', role: 'DOCTOR' },
+      data: { organizationId, name: 'Dra. X', email: 'drx@clinica.local', passwordHash: 'x', role: 'DOCTOR' },
     });
     const doctor = await prisma.doctor.create({
-      data: { userId: doctorUser.id, specialty: 'Geral', crm: 'CRM-PF-1' },
+      data: { organizationId, userId: doctorUser.id, specialty: 'Geral', crm: 'CRM-PF-1' },
     });
     doctorId = doctor.id;
     await prisma.availability.create({
       data: {
+        organizationId,
         doctorId,
         weekday: date.getUTCDay(),
         startTime: '09:00',

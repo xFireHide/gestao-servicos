@@ -53,8 +53,10 @@ export class AppointmentsService {
    * O INSERT é feito via SQL cru para que a violação chegue como erro detectável.
    */
   async create(input: CreateAppointmentInput): Promise<{ id: string }> {
-    await this.ensureDoctor(input.doctorId);
+    // organizationId do agendamento deriva do médico (tenant dono da agenda).
+    const organizationId = await this.ensureDoctor(input.doctorId);
     await this.ensurePatient(input.patientId);
+    if (input.serviceId) await this.ensureService(input.serviceId);
 
     const withinWindow = await this.availability.isWithinAvailability(
       input.doctorId,
@@ -66,20 +68,33 @@ export class AppointmentsService {
     }
 
     const id = randomUUID();
-    try {
-      await this.prisma.$executeRaw`
-        INSERT INTO "appointments"
-          ("id", "doctorId", "patientId", "startAt", "endAt", "status", "reason", "createdAt", "updatedAt")
-        VALUES (
-          ${id}::uuid, ${input.doctorId}::uuid, ${input.patientId}::uuid,
-          ${input.startAt}::timestamptz, ${input.endAt}::timestamptz,
-          'SCHEDULED'::"AppointmentStatus", ${input.reason ?? null}, now(), now()
-        )`;
-    } catch (err) {
-      if (PrismaService.isOverlapViolation(err)) {
-        throw new ConflictException('Horário indisponível: já existe agendamento neste período');
+    // Repete em caso de deadlock transitório: sob concorrência, dois INSERTs
+    // sobrepostos podem se bloquear mutuamente no índice de exclusão; ao repetir,
+    // o slot já está ocupado pelo vencedor e a violação vem limpa como 23P01 -> 409.
+    const MAX_ATTEMPTS = 4;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        // INSERT cru (necessário p/ a exclusion constraint emitir 23P01): o middleware
+        // de tenant do Prisma não cobre $executeRaw, então o organizationId vai explícito.
+        await this.prisma.$executeRaw`
+          INSERT INTO "appointments"
+            ("id", "organizationId", "doctorId", "patientId", "serviceId", "startAt", "endAt", "status", "reason", "createdAt", "updatedAt")
+          VALUES (
+            ${id}::uuid, ${organizationId}::uuid, ${input.doctorId}::uuid, ${input.patientId}::uuid,
+            ${input.serviceId ?? null}::uuid,
+            ${input.startAt}::timestamptz, ${input.endAt}::timestamptz,
+            'SCHEDULED'::"AppointmentStatus", ${input.reason ?? null}, now(), now()
+          )`;
+        break;
+      } catch (err) {
+        if (PrismaService.isOverlapViolation(err)) {
+          throw new ConflictException('Horário indisponível: já existe agendamento neste período');
+        }
+        if (PrismaService.isTransientConflict(err) && attempt < MAX_ATTEMPTS) {
+          continue;
+        }
+        throw err;
       }
-      throw err;
     }
 
     const payload: AppointmentScheduledPayload = {
@@ -122,13 +137,23 @@ export class AppointmentsService {
     });
   }
 
-  private async ensureDoctor(doctorId: string): Promise<void> {
-    const count = await this.prisma.doctor.count({ where: { id: doctorId } });
-    if (count === 0) throw new NotFoundException('Médico não encontrado');
+  /** Garante que o médico existe (no tenant atual) e retorna o organizationId dele. */
+  private async ensureDoctor(doctorId: string): Promise<string> {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorId },
+      select: { organizationId: true },
+    });
+    if (!doctor) throw new NotFoundException('Médico não encontrado');
+    return doctor.organizationId;
   }
 
   private async ensurePatient(patientId: string): Promise<void> {
     const count = await this.prisma.patient.count({ where: { id: patientId } });
     if (count === 0) throw new NotFoundException('Paciente não encontrado');
+  }
+
+  private async ensureService(serviceId: string): Promise<void> {
+    const count = await this.prisma.service.count({ where: { id: serviceId } });
+    if (count === 0) throw new NotFoundException('Serviço não encontrado');
   }
 }
