@@ -37,6 +37,18 @@ export class SchedulingController {
     return this.availability.upsertRule(body);
   }
 
+  @Get('doctors/:id/availability')
+  @Roles(Role.DOCTOR, Role.RECEPTIONIST, Role.ADMIN)
+  listAvailability(@Param('id', ParseUUIDPipe) id: string) {
+    return this.availability.listRules(id);
+  }
+
+  @Delete('availability/:id')
+  @Roles(Role.DOCTOR, Role.ADMIN)
+  deleteAvailability(@Param('id', ParseUUIDPipe) id: string) {
+    return this.availability.deleteRule(id);
+  }
+
   /** Slots livres — leitura pública (paciente vê antes mesmo de logar). */
   @Public()
   @Get('slots')

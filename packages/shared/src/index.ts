@@ -1,6 +1,7 @@
 export * from './roles';
 export * from './organizations';
 export * from './onboarding';
+export * from './staff';
 export * from './auth';
 export * from './patients';
 export * from './services';

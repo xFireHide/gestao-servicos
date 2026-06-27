@@ -28,6 +28,21 @@ export class AvailabilityService {
     });
   }
 
+  /** Regras de disponibilidade de um profissional (para gerenciamento na UI). */
+  async listRules(doctorId: string) {
+    await this.ensureDoctor(doctorId);
+    return this.prisma.availability.findMany({
+      where: { doctorId },
+      orderBy: [{ weekday: 'asc' }, { startTime: 'asc' }],
+    });
+  }
+
+  async deleteRule(id: string): Promise<void> {
+    const rule = await this.prisma.availability.findFirst({ where: { id }, select: { id: true } });
+    if (!rule) throw new NotFoundException('Regra de disponibilidade não encontrada');
+    await this.prisma.availability.delete({ where: { id } });
+  }
+
   /** Slots livres de um médico numa data: gera a grade e remove os já ocupados. */
   async freeSlots(doctorId: string, date: Date): Promise<Slot[]> {
     await this.ensureDoctor(doctorId);
