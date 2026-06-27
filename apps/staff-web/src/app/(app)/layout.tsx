@@ -13,6 +13,7 @@ const NAV = [
   { href: '/pacientes', label: 'Pacientes' },
   { href: '/servicos', label: 'Serviços' },
   { href: '/financeiro', label: 'Financeiro' },
+  { href: '/assinatura', label: 'Assinatura' },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {

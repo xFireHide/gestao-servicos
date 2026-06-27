@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, Input } from '@/components/ui';
@@ -52,6 +53,12 @@ export default function LoginPage() {
             {busy ? 'Entrando…' : 'Entrar'}
           </Button>
         </form>
+        <p className="mt-4 text-center text-sm text-slate-500">
+          Não tem conta?{' '}
+          <Link href="/signup" className="text-brand-700 hover:underline">
+            Criar empresa
+          </Link>
+        </p>
       </Card>
     </main>
   );

@@ -110,6 +110,21 @@ export class AuthService {
     });
   }
 
+  /** Emite tokens para um usuário existente (ex.: auto-login após o onboarding). */
+  async issueTokensForUser(user: {
+    id: string;
+    email: string;
+    role: Role;
+    organizationId: string;
+  }): Promise<AuthTokens> {
+    return this.issueTokens({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId,
+    });
+  }
+
   private async issueTokens(claims: JwtClaims): Promise<AuthTokens> {
     const accessTtl = this.config.get('JWT_ACCESS_TTL', { infer: true });
     const refreshTtl = this.config.get('JWT_REFRESH_TTL', { infer: true });
